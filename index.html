@@ -84,7 +84,7 @@ function sys(){return 'Du bist J.A.R.V.I.S., der persönliche KI-Assistent des N
 async function err(r){let t='';try{t=(await r.json()).error.message}catch(e){}
  if(r.status===400&&/API key/i.test(t))return new Error('Der Schlüssel ist ungültig. Prüfe ihn in den Einstellungen.');
  if(r.status===401||r.status===403)return new Error('Google lehnt den Schlüssel ab'+(t?' ('+t.slice(0,120)+')':'')+'.');
- if(r.status===404)return new Error('Dieses KI-Modell gibt es nicht. Ändere es in den Einstellungen.');
+ if(r.status===404)return new Error('Google meldet 404 (nicht gefunden)'+(t?': '+t.slice(0,200):'')+'.');
  if(r.status===429)return new Error('Limit des kostenlosen Kontos erreicht. Warte eine Minute oder bis morgen.');
  return new Error('Fehler '+r.status+(t?': '+t.slice(0,160):''));
 }
@@ -157,7 +157,7 @@ $('#clr').onclick=()=>{hist=[];L.jh='[]';$('#log').innerHTML='';$('#msg').textCo
 $('#save').onclick=async()=>{L.jk=$('#k').value.trim();L.jm=$('#m').value.trim()||'gemini-2.5-flash';if($('#v').value)L.jv=$('#v').value;
   const m=$('#msg');m.textContent='Teste Verbindung …';
   try{const r=await fetch(G+'/'+model()+':generateContent',{method:'POST',headers:{'x-goog-api-key':key(),'Content-Type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:[{text:'Antworte nur mit dem Wort OK.'}]}]})});
-    if(!r.ok){if(r.status===404){const l=await fetch(G+'?pageSize=100',{headers:{'x-goog-api-key':key()}});const ids=(await l.json()).models.filter(x=>(x.supportedGenerationMethods||[]).includes('generateContent')&&/flash/.test(x.name)).map(x=>x.name.replace('models/',''));throw new Error('Dieses Modell gibt es nicht. Probiere: '+ids.slice(0,6).join(', '))}throw await err(r)}
+    if(!r.ok)throw await err(r)
     m.textContent='✓ Schlüssel und Modell funktionieren.'}
   catch(e){m.textContent='✗ '+e.message}};
 hist.forEach(h=>show(h.r,h.c));
