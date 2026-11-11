@@ -26,6 +26,7 @@ h1{margin:0;font-size:20px;letter-spacing:.35em;font-weight:300;color:var(--c);t
 #st{font-size:14px;color:#8fdcf0;margin:6px 0;min-height:18px;text-align:center;padding:0 12px}
 #orbw{position:relative;width:150px;height:150px;display:flex;align-items:center;justify-content:center}
 #orb{position:relative;z-index:2;width:116px;height:116px;border-radius:50%;border:2px solid var(--c);background:radial-gradient(circle at 50% 40%,#19d3ff55,#0a2a6a 70%);box-shadow:0 0 30px #19d3ffaa,inset 0 0 24px #19d3ff66;color:#fff;font-size:38px;transition:transform .15s}
+.n{align-self:flex-start;font-size:11px;color:#4f7f90;margin:-6px 0 0 8px}
 #orb::after{content:"";position:absolute;inset:32%;border-radius:50%;background:radial-gradient(circle,#d8fbff 0%,#19d3ff 55%,transparent 72%);opacity:.85}
 #orb:active{transform:scale(.95)}
 #ring{position:absolute;inset:4px;border-radius:50%;border:2px solid transparent;border-top-color:var(--c);border-bottom-color:var(--b);opacity:.55;animation:spin 6s linear infinite}
@@ -67,7 +68,7 @@ dialog .x{background:#3a1020}
   <label>Stimme</label>
   <select id="v"></select>
   <label>Sprechtempo</label>
-  <select id="sr"><option value="1">Normal</option><option value="1.2">Schnell</option><option value="1.4">Sehr schnell</option></select>
+  <select id="sr"><option value="0.95">Langsam</option><option value="1">Normal</option><option value="1.1">Etwas schneller</option><option value="1.2">Schnell</option></select>
   <div style="font-size:12px;color:#8fdcf0;margin-top:10px">Hinweis: Im kostenlosen Tarif darf Google deine Eingaben zur Verbesserung seiner Produkte nutzen. Sprich nichts Privates ein.</div><div id="msg"></div>
   <div class="r">
     <button id="save">Speichern &amp; testen</button>
@@ -79,7 +80,7 @@ dialog .x{background:#3a1020}
 
 <script>
 const $=s=>document.querySelector(s),L=localStorage,G0=1;
-const key=()=>L.jk||'',model=()=>L.jm||'gemini-3.5-flash-lite',tkey=()=>L.jt||'',rate=()=>parseFloat(L.jr||'1.2');
+const key=()=>L.jk||'',model=()=>L.jm||'gemini-3.5-flash-lite',tkey=()=>L.jt||'',rate=()=>parseFloat(L.jr||'1.1');
 let hist=[];try{hist=JSON.parse(L.jh||'[]')}catch(e){}
 let state='idle',stream,ac,pcm=[],spoke=false;
 const TXT={idle:'Tippe auf den Knopf und sprich',listen:'Ich höre zu …',think:'Ich denke nach …',speak:'Ich spreche … (tippen zum Stoppen)'};
@@ -100,8 +101,10 @@ function voice(){const a=voices();return a.find(v=>v.name===L.jv)||a.find(v=>/pr
 function fillVoices(){const s=$('#v'),a=voices();s.innerHTML='';a.forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=v.name;s.appendChild(o)});const c=voice();if(c)s.value=c.name}
 if('speechSynthesis' in window){fillVoices();speechSynthesis.onvoiceschanged=fillVoices}
 function speak(t){return new Promise(res=>{const ss=speechSynthesis;ss.cancel();
-  const parts=(t.replace(/[*_#`]/g,'').match(/[^.!?\n]+[.!?]*/g)||[t]).filter(p=>p.trim());let i=0;const v=voice();
-  const next=()=>{if(state!=='speak'||i>=parts.length)return res();const u=new SpeechSynthesisUtterance(parts[i++].trim());u.lang='de-DE';u.rate=rate();if(v)u.voice=v;u.onend=next;u.onerror=next;ss.speak(u)};next()})}
+  const s=(t.replace(/[*_#`]/g,'').match(/[^.!?\n]+[.!?]*/g)||[t]).map(x=>x.trim()).filter(Boolean);
+  const parts=[];let cur='';s.forEach(x=>{if(cur&&(cur+' '+x).length>350){parts.push(cur);cur=x}else cur=cur?cur+' '+x:x});if(cur)parts.push(cur);
+  let i=0;const v=voice();
+  const next=()=>{if(state!=='speak'||i>=parts.length)return res();const u=new SpeechSynthesisUtterance(parts[i++]);u.lang='de-DE';u.rate=rate();if(v)u.voice=v;u.onend=next;u.onerror=next;ss.speak(u)};next()})}
 /* Aufnahme + Frage an Gemini */
 const G='https://generativelanguage.googleapis.com/v1beta/models';
 function keep(r,c){hist.push({r,c});hist=hist.slice(-60);try{L.jh=JSON.stringify(hist)}catch(e){}}
@@ -118,12 +121,21 @@ function b64(buf){
  for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));
  return btoa(s);
 }
+const TMS={tav:20000,gem:45000};
+async function tfetch(u,o,ms){
+ const c=new AbortController(),id=setTimeout(()=>c.abort(),ms);
+ try{return await fetch(u,Object.assign({},o,{signal:c.signal}))}
+ catch(e){if(e&&e.name==='AbortError')throw new Error('Zeitüberschreitung');throw e}
+ finally{clearTimeout(id)}
+}
+function note(t){const d=document.createElement('div');d.className='n';d.textContent=t;$('#log').appendChild(d);$('#log').scrollTop=1e9}
+const sec=ms=>(ms/1000).toFixed(1)+' s';
 async function gem(q,audio,ctx){
  const c=hist.slice(-20).map(h=>({role:h.r==='user'?'user':'model',parts:[{text:h.c}]}));
  while(c.length&&c[0].role!=='user')c.shift();
  const last=ctx?[{text:q+'\n\nSuchergebnisse aus dem Internet (heute abgerufen):\n'+ctx+'\n\nBeantworte die Frage kurz und gesprochen auf Deutsch nur anhand dieser Ergebnisse. Nenne die Quelle in wenigen Worten. Erfinde nichts; reichen die Ergebnisse nicht, sage das ehrlich.'}]:audio?[{inlineData:{mimeType:'audio/wav',data:audio}},{text:'(Die Frage des Nutzers ist als Audio angehängt.)'}]:[{text:q}];
  c.push({role:'user',parts:last});
- const r=await fetch(G+'/'+model()+':generateContent',{method:'POST',headers:{'x-goog-api-key':key(),'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys()}]},contents:c,generationConfig:ctx?{temperature:.4}:{responseMimeType:'application/json',temperature:.6}})});
+ const r=await tfetch(G+'/'+model()+':generateContent',{method:'POST',headers:{'x-goog-api-key':key(),'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:sys()}]},contents:c,generationConfig:ctx?{temperature:.4}:{responseMimeType:'application/json',temperature:.6}})},TMS.gem);
  if(!r.ok)throw await err(r);
  const j=await r.json(),t=((j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts)||[]).map(p=>p.text||'').join('');
  if(ctx){let a=t.trim();try{const o=JSON.parse(a);if(o&&o.antwort)a=String(o.antwort)}catch(e){}return{q:'',a:a,s:''}}
@@ -133,8 +145,8 @@ async function gem(q,audio,ctx){
 }
 async function tav(q){
  let r;
- try{r=await fetch('https://api.tavily.com/search',{method:'POST',headers:{Authorization:'Bearer '+tkey(),'Content-Type':'application/json'},body:JSON.stringify({query:q,max_results:4,search_depth:'basic'})})}
- catch(e){throw new Error('Die Suche ist von hier aus nicht erreichbar (Browser-Sperre oder keine Verbindung).')}
+ try{r=await tfetch('https://api.tavily.com/search',{method:'POST',headers:{Authorization:'Bearer '+tkey(),'Content-Type':'application/json'},body:JSON.stringify({query:q,max_results:4,search_depth:'basic'})},TMS.tav)}
+ catch(e){throw new Error(/Zeitüberschreitung/.test(e.message)?'Die Suche antwortet nicht (Zeitüberschreitung).':'Die Suche ist von hier aus nicht erreichbar (Browser-Sperre oder keine Verbindung).')}
  if(!r.ok){
   if(r.status===401)throw new Error('Der Tavily-Schlüssel ist ungültig.');
   if(r.status===429||r.status===432||r.status===433)throw new Error('Such-Limit erreicht (kostenlos: 1.000 Suchen pro Monat).');
@@ -145,13 +157,15 @@ async function tav(q){
 }
 async function reply(q,audio){
  if(q)show('user',q);set('think',audio?'Ich verstehe dich …':undefined);
- try{const o=await gem(q,audio);let u=q;
+ const t0=Date.now();let tS=0,tA=0;
+ try{const o=await gem(q,audio);const tF=Date.now()-t0;let u=q;
   if(audio){if(!o.q){add('assistant','Ich konnte dich nicht verstehen. Versuch es nochmal.',false);return set('idle')}u=o.q;show('user',u)}
   let a=o.a;
-  if(o.s&&tkey()){set('think','Ich suche im Internet …');const ctx=await tav(o.s);a=ctx?(await gem(u,null,ctx)).a:'Dazu habe ich im Internet nichts gefunden.'}
+  if(o.s&&tkey()){set('think','Ich suche im Internet …');let s0=Date.now();const ctx=await tav(o.s);tS=Date.now()-s0;
+   if(ctx){set('think','Ich lese die Ergebnisse …');s0=Date.now();a=(await gem(u,null,ctx)).a;tA=Date.now()-s0}else a='Dazu habe ich im Internet nichts gefunden.'}
   a=a||'Dazu fällt mir gerade keine Antwort ein.';
-  keep('user',u);add('assistant',a);set('speak');await speak(a)
- }catch(e){add('assistant','Fehler: '+e.message,false)}
+  keep('user',u);add('assistant',a);note('⏱ Denken '+sec(tF)+(o.s?' · Suche '+sec(tS)+' · Antwort '+sec(tA):''));set('speak');await speak(a)
+ }catch(e){add('assistant','Fehler: '+(/Zeitüberschreitung/.test(e.message)?'Der Dienst antwortet gerade nicht. Versuch es gleich nochmal.':e.message),false)}
  set('idle')}
 async function listen(){
   if(!key()){$('#dlg').showModal();return}
@@ -173,7 +187,7 @@ function stop(){if(state!=='listen')return;const sr=ac.sampleRate;stream.getTrac
 function unlock(){try{speechSynthesis.speak(new SpeechSynthesisUtterance(''))}catch(e){}}
 $('#orb').onclick=()=>{if(state==='idle'){unlock();listen()}else if(state==='listen')stop();else if(state==='speak'){speechSynthesis.cancel();set('idle')}};
 $('#f').onsubmit=e=>{e.preventDefault();const t=$('#t').value.trim();if(!t||state!=='idle')return;if(!key()){$('#dlg').showModal();return}$('#t').value='';unlock();reply(t)};
-$('#gear').onclick=()=>{$('#k').value=key();$('#tk').value=tkey();$('#sr').value=L.jr||'1.2';$('#m').value=model();$('#msg').textContent='';fillVoices();$('#dlg').showModal()};
+$('#gear').onclick=()=>{$('#k').value=key();$('#tk').value=tkey();$('#sr').value=L.jr||'1.1';$('#m').value=model();$('#msg').textContent='';fillVoices();$('#dlg').showModal()};
 $('#cls').onclick=()=>$('#dlg').close();
 $('#clr').onclick=()=>{hist=[];L.jh='[]';$('#log').innerHTML='';$('#msg').textContent='Verlauf gelöscht.'};
 $('#save').onclick=async()=>{L.jk=$('#k').value.trim();L.jt=$('#tk').value.trim();L.jr=$('#sr').value;L.jm=$('#m').value.trim()||'gemini-3.5-flash-lite';if($('#v').value)L.jv=$('#v').value;
